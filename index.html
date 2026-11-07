@@ -1729,10 +1729,19 @@ async function closeBook() {
 // Grundgerüst, in das der Artifact-Dienst jede Seite setzt; daraus entsteht beim Speichern die neue Fassung
 const ART_HEAD = '<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>\n';
 const PAGE_META = '<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n<title>Shinobi-Berichtsheft</title>\n<meta name="claude:viewport-fit-sides" content="cover">\n<link rel="preconnect" href="https://fonts.googleapis.com">\n<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mrs+Saint+Delafield&family=Outfit:wght@300;400;500;600;700&family=Yuji+Syuku&display=swap">\n';
-function pageSource() {
+function pageBody() {
   const json = JSON.stringify(DATEN, null, 1).replace(/</g, "\\u003c");
-  return ART_HEAD + PAGE_META + PRISTINE.css + "\n\n" + PRISTINE.buch + "\n\n" +
-    '<script type="application/json" id="daten">\n' + json + "\n</" + "script>\n" + PRISTINE.main + "\n</body></html>";
+  return PAGE_META + PRISTINE.css + "\n\n" + PRISTINE.buch + "\n\n" +
+    '<script type="application/json" id="daten">\n' + json + "\n</" + "script>\n" + PRISTINE.main + "\n";
+}
+const pageSource = () => ART_HEAD + pageBody() + "</body></html>";
+/* Eigenständige Seite, z. B. für GitHub Pages: wird als index.html heruntergeladen */
+const standaloneSource = () => '<!doctype html>\n<html lang="de">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n<title>Berichtsheft · ' + esc(CHARAKTER.name) + '</title>\n</head>\n<body>\n' + pageBody() + "</body>\n</html>\n";
+function downloadPage() {
+  const url = URL.createObjectURL(new Blob([standaloneSource()], { type: "text/html;charset=utf-8" }));
+  const a = document.createElement("a"); a.href = url; a.download = "index.html";
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 const ss = {
   get(k) { try { return sessionStorage.getItem(k); } catch { return null; } },
@@ -1757,7 +1766,7 @@ function updateBar() {
   b.textContent = k.startsWith("monat-") ? "Diesen Monat bearbeiten" : "Diese Mission bearbeiten";
   const s = $("#edSave");
   s.disabled = !dirty;
-  s.textContent = dirty ? `Speichern (${dirty})` : "Gespeichert";
+  s.textContent = !dirty ? "Gespeichert" : window.claude ? `Speichern (${dirty})` : `Als Datei speichern (${dirty})`;
 }
 function markDirty() { dirty++; edMsg(""); updateBar(); }
 addEventListener("beforeunload", e => { if (dirty && !publishing) { e.preventDefault(); e.returnValue = ""; } });
@@ -2004,8 +2013,11 @@ async function speichern() {
   let art = null;
   try { art = window.claude?.use ? await window.claude.use("artifact") : null; } catch { art = null; }
   if (!art) {
-    try { await navigator.clipboard.writeText(JSON.stringify(DATEN, null, 1)); edMsg("Speichern geht nur in der veröffentlichten Seite. Die Daten liegen in der Zwischenablage."); }
-    catch { edMsg("Speichern geht nur in der veröffentlichten Seite."); }
+    // außerhalb von Claude (z. B. GitHub Pages): fertige Seite als Datei herunterladen
+    try {
+      downloadPage(); dirty = 0; updateBar();
+      edMsg("Neue index.html wurde heruntergeladen. Lade sie bei GitHub über „Add file → Upload files“ hoch, sie ersetzt die alte.");
+    } catch { edMsg("Die Datei konnte nicht heruntergeladen werden."); }
     return;
   }
   publishing = true;
