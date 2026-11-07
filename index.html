@@ -612,6 +612,7 @@ a.mission:hover h3{color:var(--ok-ink)}
   <button type="button" data-ed="seite" id="edPage" hidden>Diese Seite</button>
   <span class="eb-sep" aria-hidden="true"></span>
   <button type="button" data-ed="passwort">Passwort</button>
+  <button type="button" data-ed="github" id="edGh" hidden>GitHub</button>
   <button type="button" data-ed="speichern" class="eb-save" id="edSave" disabled>Gespeichert</button>
   <button type="button" data-ed="ende">Beenden</button>
   <p class="eb-msg" id="edMsg" role="status"></p>
@@ -1737,6 +1738,46 @@ function pageBody() {
 const pageSource = () => ART_HEAD + pageBody() + "</body></html>";
 /* Eigenständige Seite, z. B. für GitHub Pages: wird als index.html heruntergeladen */
 const standaloneSource = () => '<!doctype html>\n<html lang="de">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n<title>Berichtsheft · ' + esc(CHARAKTER.name) + '</title>\n</head>\n<body>\n' + pageBody() + "</body>\n</html>\n";
+/* ---------- Direkt auf GitHub speichern (nur auf der eigenen Website, z. B. GitHub Pages) ----------
+   Repository, Branch und Zugangs-Token bleiben nur im Browser dieses Geräts (localStorage), nie in der Seite selbst. */
+const GH_KEY = "bh-github";
+const ghGet = () => { try { return JSON.parse(localStorage.getItem(GH_KEY) || "{}"); } catch { return {}; } };
+const ghSet = v => { try { v ? localStorage.setItem(GH_KEY, JSON.stringify(v)) : localStorage.removeItem(GH_KEY); return true; } catch { return false; } };
+const normRepo = v => String(v || "").trim().replace(/^https?:\/\/github\.com\//i, "").replace(/\.git$/i, "").replace(/\/+$/, "");
+const ghReady = () => { const g = ghGet(); return !!(g.repo && g.token); };
+function ghGuessRepo() {
+  const h = location.hostname, m = /^([^.]+)\.github\.io$/i.exec(h);
+  if (!m) return "";
+  const first = location.pathname.split("/").filter(Boolean)[0];
+  return m[1] + "/" + (first && !/\.html?$/i.test(first) ? first : h);
+}
+const ghHeaders = token => ({ Accept: "application/vnd.github+json", Authorization: "Bearer " + token, "X-GitHub-Api-Version": "2022-11-28" });
+const toBase64 = text => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(",")[1]); fr.onerror = rej; fr.readAsDataURL(new Blob([text], { type: "text/html" })); });
+async function ghPush() {
+  const { repo, branch = "main", token } = ghGet();
+  const url = `https://api.github.com/repos/${repo}/contents/index.html`, h = ghHeaders(token);
+  const content = await toBase64(standaloneSource());
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const g = await fetch(`${url}?ref=${encodeURIComponent(branch)}`, { headers: h, cache: "no-store" });
+    if (g.status === 401) throw new Error("Der Token ist ungültig oder abgelaufen.");
+    const sha = g.ok ? (await g.json()).sha : undefined;
+    const p = await fetch(url, { method: "PUT", headers: { ...h, "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "Berichtsheft aktualisiert", content, branch, ...(sha ? { sha } : {}) }) });
+    if (p.ok) return;
+    if (p.status === 409 || p.status === 422) continue;   // Datei wurde zwischendurch geändert: neu versuchen
+    if (p.status === 401) throw new Error("Der Token ist ungültig oder abgelaufen.");
+    if (p.status === 403 || p.status === 404) throw new Error(`Kein Schreibzugriff auf „${repo}“. Prüfe den Repository-Namen und ob der Token „Contents: Read and write“ hat.`);
+    throw new Error(`GitHub meldet Fehler ${p.status}.`);
+  }
+  throw new Error("Die Datei auf GitHub wurde gerade geändert. Bitte noch einmal speichern.");
+}
+async function ghTest(repo, token) {
+  const r = await fetch(`https://api.github.com/repos/${repo}`, { headers: ghHeaders(token), cache: "no-store" });
+  if (r.status === 401) return "Der Token ist ungültig oder abgelaufen.";
+  if (!r.ok) return `Repository „${repo}“ nicht gefunden oder kein Zugriff.`;
+  const j = await r.json();
+  return j.permissions && j.permissions.push ? "Verbindung steht, Schreibrechte sind vorhanden." : "Verbindung steht, aber ohne Schreibrechte. Der Token braucht „Contents: Read and write“.";
+}
 function downloadPage() {
   const url = URL.createObjectURL(new Blob([standaloneSource()], { type: "text/html;charset=utf-8" }));
   const a = document.createElement("a"); a.href = url; a.download = "index.html";
@@ -1766,7 +1807,8 @@ function updateBar() {
   b.textContent = k.startsWith("monat-") ? "Diesen Monat bearbeiten" : "Diese Mission bearbeiten";
   const s = $("#edSave");
   s.disabled = !dirty;
-  s.textContent = !dirty ? "Gespeichert" : window.claude ? `Speichern (${dirty})` : `Als Datei speichern (${dirty})`;
+  s.textContent = !dirty ? "Gespeichert" : (window.claude || ghReady()) ? `Speichern (${dirty})` : `Als Datei speichern (${dirty})`;
+  $("#edGh").hidden = !!window.claude;
 }
 function markDirty() { dirty++; edMsg(""); updateBar(); }
 addEventListener("beforeunload", e => { if (dirty && !publishing) { e.preventDefault(); e.returnValue = ""; } });
@@ -1857,6 +1899,14 @@ const FORMS = {
       <div class="ed-grid">${FIELD("Auftrag von", inp("auftraggeber", d.auftraggeber))}${FIELD("Ort", inp("ort", d.ort))}</div>
       ${FIELD("Missionsbericht", area("bericht", d.bericht, 7))}`;
   },
+  github() {
+    const g = ghGet();
+    return `<h2 class="script ed-h">GitHub</h2>
+      <p class="ed-note">Mit dieser Verbindung schickt „Speichern“ die Seite direkt an dein GitHub-Repository. Die Angaben bleiben nur in diesem Browser auf diesem Gerät.</p>
+      <div class="ed-grid">${FIELD("Repository", inp("repo", g.repo || ghGuessRepo(), 'placeholder="Name/Repository" autocomplete="off"'))}${FIELD("Branch", inp("branch", g.branch || "main", 'autocomplete="off"'))}</div>
+      ${FIELD("Zugangs-Token", '<input name="token" type="password" autocomplete="off" spellcheck="false">', g.token ? "Ein Token ist gespeichert. Leer lassen, um ihn zu behalten." : "Fine-grained Token, nur für dieses Repository, mit „Contents: Read and write“.")}
+      <div class="img-act"><button type="button" class="pill pill-soft" data-gh-test>Verbindung prüfen</button>${g.token ? '<button type="button" class="pill pill-soft" data-gh-clear>Verbindung entfernen</button>' : ""}</div>`;
+  },
   passwort() {
     return `<h2 class="script ed-h">Passwort</h2><p class="ed-note">Das neue Passwort gilt, sobald du speicherst.</p>
       ${FIELD("Neues Passwort", '<input name="p1" type="password" required minlength="4" autocomplete="new-password">')}
@@ -1945,6 +1995,14 @@ async function applyForm(f) {
     Object.assign(x, { titel: g("titel"), rang: g("rang"), status: g("status"), monat: +g("monat"), auftraggeber: g("auftraggeber"), ort: g("ort"), bericht: g("bericht") });
     return "mission-" + x.id;
   }
+  if (kind === "github") {
+    const old = ghGet(), repo = normRepo(g("repo"));
+    if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return fail("Bitte das Repository als Name/Repository angeben, z. B. txbiaz/berichtsheft.");
+    const token = g("token") || old.token;
+    if (!token) return fail("Bitte einen Zugangs-Token eintragen.");
+    if (!ghSet({ repo, branch: g("branch") || "main", token })) return fail("Dieser Browser erlaubt kein Speichern der Verbindung.");
+    return "";
+  }
   if (kind === "passwort") {
     if (g("p1").length < 4) return fail("Bitte mindestens 4 Zeichen.");
     if (g("p1") !== g("p2")) return fail("Die beiden Eingaben sind nicht gleich.");
@@ -1962,7 +2020,7 @@ $("#edForm").addEventListener("submit", async e => {
   e.preventDefault();
   const f = e.currentTarget, target = await applyForm(f);
   if (target === false) return;
-  markDirty();
+  if (f.dataset.kind === "github") { updateBar(); edMsg("GitHub-Verbindung gespeichert."); } else markDirty();
   $("#edDlg").close();
   goTo(target);
 });
@@ -1970,6 +2028,15 @@ $("#edForm").addEventListener("click", e => {
   const f = e.currentTarget;
   const add = e.target.closest("[data-add]");
   if (add) { add.insertAdjacentHTML("beforebegin", add.dataset.add === "sk" ? skRow() : actRow()); add.previousElementSibling.querySelector("input,select")?.focus(); return; }
+  const ght = e.target.closest("[data-gh-test]");
+  if (ght) {
+    const err = f.querySelector(".ed-err"), repo = normRepo(f.elements.repo?.value), token = (f.elements.token?.value || "").trim() || ghGet().token;
+    if (!repo || !token) { err.textContent = "Bitte Repository und Token eintragen."; return; }
+    err.textContent = "Prüfe …";
+    ghTest(repo, token).then(t => err.textContent = t).catch(() => err.textContent = "GitHub ist gerade nicht erreichbar.");
+    return;
+  }
+  if (e.target.closest("[data-gh-clear]")) { ghSet(null); $("#edDlg").close(); updateBar(); edMsg("GitHub-Verbindung entfernt."); return; }
   const clr = e.target.closest("[data-img-clear]");
   if (clr) { const n = clr.dataset.imgClear; f.elements[n].value = ""; f.querySelector(`[data-prev="${n}"]`).innerHTML = "<small>Kein Bild</small>"; return; }
   const rm = e.target.closest("[data-rm]");
@@ -2003,6 +2070,7 @@ $("#editBar").addEventListener("click", e => {
   else if (a === "monat-neu") openEditor("monat");
   else if (a === "mission-neu") openEditor("mission");
   else if (a === "passwort") openEditor("passwort");
+  else if (a === "github") openEditor("github");
   else if (a === "seite") { if (k.startsWith("monat-")) openEditor("monat", /^monat-(\d+)/.exec(k)[1]); else if (k.startsWith("mission-")) openEditor("mission", k.slice(8)); }
   else if (a === "speichern") speichern();
   else if (a === "ende") { if (dirty) { edMsg("Es gibt ungespeicherte Änderungen. Erst speichern, oder die Seite neu laden, um sie zu verwerfen."); return; } setEditing(false); }
@@ -2012,8 +2080,18 @@ async function speichern() {
   edMsg("Speichere …");
   let art = null;
   try { art = window.claude?.use ? await window.claude.use("artifact") : null; } catch { art = null; }
+  if (!art && ghReady()) {
+    publishing = true;
+    try {
+      await ghPush();
+      dirty = 0; updateBar();
+      edMsg("Gespeichert und an GitHub geschickt. In ein bis zwei Minuten ist die Seite online aktualisiert.");
+    } catch (err) { edMsg("GitHub: " + (err?.message || "Speichern hat nicht geklappt.")); }
+    publishing = false;
+    return;
+  }
   if (!art) {
-    // außerhalb von Claude (z. B. GitHub Pages): fertige Seite als Datei herunterladen
+    // außerhalb von Claude ohne GitHub-Verbindung: fertige Seite als Datei herunterladen
     try {
       downloadPage(); dirty = 0; updateBar();
       edMsg("Neue index.html wurde heruntergeladen. Lade sie bei GitHub über „Add file → Upload files“ hoch, sie ersetzt die alte.");
