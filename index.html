@@ -309,6 +309,26 @@ button{font:inherit;color:inherit}
 .leader{border-bottom:2px dotted #c4bab6;transform:translateY(-6px)}
 .toc-meta{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-soft);white-space:nowrap}
 .mini{width:22px;height:22px;border:1.5px solid var(--ink);border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:600;color:var(--ink)}
+/* Ausgerissene Seiten: im Verzeichnis nur Nummer und Datum, im Buch nur die Risskante am Bund */
+.toc-row.torn .toc-name{color:var(--ink-faint)}
+.toc-row.torn .leader{border-bottom-style:dashed;opacity:.6}
+.toc-row.torn .toc-meta{font-style:italic;color:var(--ink-faint)}
+.page.torn::before{content:"";position:absolute;inset:0;background:rgba(110,85,70,.045);pointer-events:none}
+.page.torn .folio{display:none}
+.tear{position:absolute;top:0;bottom:0;width:14%;z-index:3;pointer-events:none;filter:drop-shadow(2px 1px 1.5px rgba(70,45,30,.3))}
+.tear.l{right:0;filter:drop-shadow(-2px 1px 1.5px rgba(70,45,30,.3))}
+.tear.r{left:0}
+.tear i{position:absolute;inset:0;display:block}
+.tear .fib{background:#fffdf9}
+.tear.r .pap{background:linear-gradient(90deg,var(--paper-gutter) 0%,#ebe1dd 26%,var(--paper) 70%)}
+.tear.l .pap{background:linear-gradient(270deg,var(--paper-gutter) 0%,#ebe1dd 26%,var(--paper) 70%)}
+/* Fadenheftung, an der der Rest der Seite noch hängt */
+.tear .pap::after{content:"";position:absolute;top:4%;bottom:4%;width:0;border-left:2px dashed rgba(110,88,76,.38)}
+.tear.r .pap::after{left:5px}
+.tear.l .pap::after{right:5px}
+.pv-torn{position:relative;width:100%;aspect-ratio:600/260;max-height:calc(var(--ph,732px) * .18);border-radius:6px;overflow:hidden;background:rgba(110,85,70,.07);display:grid;place-items:center}
+.pv-torn .tear{width:16%}
+.pv-torn .brush{font-size:64px;line-height:1;color:rgba(180,71,58,.4)}
 /* Ecken zum Umblättern: beim Überfahren hebt sich die Ecke an */
 .corner{position:absolute;bottom:0;width:46px;height:46px;z-index:7;display:block;outline-offset:-6px}
 .corner.r{right:0}.corner.l{left:0}
@@ -394,6 +414,9 @@ a.mission:hover h3{color:var(--ok-ink)}
   .close-btn{right:8px}
   .app-deco{display:none}
   .month-ribbon{display:none}
+  /* einspaltig liegt der Bund links: der Seitenrest der linken Seite wandert mit */
+  .page.torn{min-height:calc(100svh - 28px)}
+  .page-l .tear.l{right:auto;left:0;transform:scaleX(-1)}
 }
 @media (max-width:520px){
   .profile{grid-template-columns:1fr;justify-items:start}
@@ -1368,6 +1391,16 @@ a.mission:hover h3{color:var(--ok-ink)}
      "details": "Shioris Warnung vor dem Sumpfgebiet, in dem Shinobi vergiftet werden sollen, hatte ich mir gemerkt. Als Heiler muss ich wissen, was ich tun kann, wenn jemand aus meinem Team vergiftet wird. Deshalb las ich in der Bibliothek über Gifte und ihre Gegenmittel: woran man eine Vergiftung erkennt, welche Pflanzen in unserer Gegend giftig sind und wie man einen Vergifteten versorgt, bis ein Medizin-Ninja da ist. Das Sumpfgebiet meide ich trotzdem weiter."
     }
    ]
+  },
+  {
+   "nr": 18,
+   "titel": "",
+   "zeitraum": "15.11.",
+   "motiv": "berge",
+   "bild": "",
+   "bericht": "",
+   "aktivitaeten": [],
+   "ausgerissen": true
   }
  ],
  "missionen": [
@@ -1439,6 +1472,8 @@ const kn = n => KN[n] || String(n);
 const wait = ms => new Promise(r => setTimeout(r, reduce ? 0 : ms));
 const sorted = () => [...MONATE].sort((a,b) => a.nr - b.nr);
 const latest = () => sorted().at(-1);
+/* Neuester Monat, der noch im Heft steht (ausgerissene Seiten zeigt das Verzeichnis nicht als Vorschau an) */
+const latestShown = () => sorted().filter(m => !m.ausgerissen).at(-1) || latest();
 const missionsOf = m => MISSIONEN.filter(x => x.monat === m.nr).map(x => ({ ...x, id: String(x.id) }));
 const allMissions = () => [...sorted().flatMap(missionsOf), ...MISSIONEN.filter(x => !MONATE.some(m => m.nr === x.monat)).map(x => ({ ...x, monat: null, id: String(x.id) }))];
 function stats(list) {
@@ -1636,7 +1671,7 @@ function viewMissionen() {
 }
 function viewMission(x) {
   const m = MONATE.find(mm => mm.nr === x.monat) || {};
-  const facts = [["Auftrag von", x.auftraggeber], ["Ort", x.ort], ["Monat", x.monat ? `Monat ${x.monat}${m.titel ? " · " + m.titel : ""}` : "Noch ohne Monat"], ["Zeitraum", m.zeitraum]].filter(f => f[1]);
+  const facts = [["Auftrag von", x.auftraggeber], ["Ort", x.ort], ["Monat", x.monat ? `Monat ${x.monat}${m.ausgerissen ? " · Seite fehlt" : m.titel ? " · " + m.titel : ""}` : "Noch ohne Monat"], ["Zeitraum", m.zeitraum]].filter(f => f[1]);
   const text = x.bericht ? chunks(x.bericht).map(t => `<p>${fmt(t)}</p>`).join("") : `<p class="empty">Noch kein Missionsbericht eingetragen.</p>`;
   return {
     mark: "任", ribbon: x.monat ? kn(x.monat) : "",
@@ -1650,7 +1685,46 @@ function viewMission(x) {
       <div>${x.monat ? `<a class="pill pill-ink" href="#monat-${x.monat}">Monat ${x.monat} aufschlagen ${arrow}</a>` : `<a class="pill pill-ink" href="#missionen">Zum Register ${arrow}</a>`}</div>`
   };
 }
+/* ---------- Ausgerissene Seiten ----------
+   Ein Monat mit "ausgerissen": true zeigt im Buch nur den Rest der Seite am Bund. Titel und Inhalte bleiben in den Daten. */
+/* Zufall mit festem Startwert: eine Seite reißt bei jedem Aufschlagen gleich, aber anders als die übrigen */
+const seeded = s => () => { s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+/* Risskante als Punkte: x in % der Streifenbreite vom Bund aus, y in % der Höhe */
+function tearEdge(seed) {
+  const r = seeded(seed), pts = [];
+  const top = 22 + r() * 50, bot = 22 + r() * 50;                 // Breite oben und unten: der Riss läuft schräg
+  const fy = 12 + r() * 70, fh = 5 + r() * 9, fw = 25 + r() * 30;  // ein stehengebliebener Lappen
+  let j = 0, x = top;
+  for (let y = 0; y <= 100; y = y >= 100 ? 101 : Math.min(100, y + 1.1 + r() * 2)) {
+    j = j * .5 + (r() - .5) * 11;                                   // feine Zacken
+    x = top + (bot - top) * y / 100 + j + Math.max(0, 1 - Math.abs(y - fy) / fh) * fw;
+    if (r() < .06) x -= 8 + r() * 12;                               // kleine Ausrisse
+    pts.push([Math.min(100, Math.max(12, x)), y]);
+  }
+  return pts;
+}
+/* inset: wie weit das Papier hinter der Faserkante zurückbleibt; mirror: Bund rechts (linke Seite) */
+function tearPoly(pts, mirror, inset, seed) {
+  const r = seeded(seed);
+  const all = [[0, 0], ...pts.map(([x, y]) => [Math.max(6, x - inset - (inset ? r() * 3 : 0)), y]), [0, 100]];
+  return `polygon(${all.map(([x, y]) => `${(mirror ? 100 - x : x).toFixed(1)}% ${y.toFixed(1)}%`).join(",")})`;
+}
+const tearHTML = (seed, mirror) => { const pts = tearEdge(seed); return `<div class="tear ${mirror ? "l" : "r"}" aria-hidden="true"><i class="fib" style="clip-path:${tearPoly(pts, mirror, 0, seed)}"></i><i class="pap" style="clip-path:${tearPoly(pts, mirror, 2.5, seed + 1)}"></i></div>`; };
+function viewAusgerissen(m) {
+  return {
+    mark: "", ribbon: kn(m.nr), torn: m.nr, rClass: "m-hide",
+    left: `<p class="sr">Monat ${m.nr}${m.zeitraum ? " · " + esc(m.zeitraum) : ""}: Diese Seite wurde aus dem Heft gerissen.</p>`,
+    right: ""
+  };
+}
+function tocPreviewTorn(m) {
+  return `<div class="pv-torn" aria-hidden="true">${tearHTML(m.nr * 7 + 3, false)}<span class="brush">破</span></div>
+    <div class="pv-head"><p class="label">Monat ${m.nr}${m.zeitraum ? " · " + esc(m.zeitraum) : ""}</p><h2 class="pv-title">Seite fehlt</h2></div>
+    <p class="lede">Diese Seite wurde aus dem Heft gerissen.</p>
+    <div style="margin-top:auto"><a class="pill pill-ink" href="#monat-${m.nr}">Monat aufschlagen ${arrow}</a></div>`;
+}
 function tocPreview(m) {
+  if (m.ausgerissen) return tocPreviewTorn(m);
   const s = stats(missionsOf(m));
   const used = RANKS.filter(r => s.rank[r]);
   return `${plate(m, `Header-Bild Monat ${m.nr}`)}
@@ -1663,8 +1737,12 @@ function tocPreview(m) {
     <div style="margin-top:auto"><a class="pill pill-ink" href="#monat-${m.nr}">Monat aufschlagen ${arrow}</a></div>`;
 }
 let tocPage = 0, tocPer = 0;
-const tocText = m => `${m.titel} ${missionsOf(m).map(x => x.titel).join(" ")} ${(m.aktivitaeten || []).map(x => x.titel).join(" ")} monat ${m.nr}`.toLowerCase();
+const tocText = m => (m.ausgerissen ? `seite fehlt ausgerissen ${m.zeitraum || ""} monat ${m.nr}` : `${m.titel} ${missionsOf(m).map(x => x.titel).join(" ")} ${(m.aktivitaeten || []).map(x => x.titel).join(" ")} monat ${m.nr}`).toLowerCase();
 function tocRow(m, selNr) {
+  if (m.ausgerissen) return `<li><a class="toc-row torn${m.nr === selNr ? " sel" : ""}" href="#monat-${m.nr}" data-m="${m.nr}">
+    <span class="toc-num">${roman(m.nr)}</span><span><span class="toc-name">Monat ${m.nr}</span><span class="toc-sub">${esc(m.zeitraum || "")}</span></span>
+    <span class="leader" aria-hidden="true"></span>
+    <span class="toc-meta">Seite fehlt</span></a></li>`;
   const s = stats(missionsOf(m));
   return `<li><a class="toc-row${m.nr === selNr ? " sel" : ""}" href="#monat-${m.nr}" data-m="${m.nr}">
     <span class="toc-num">${roman(m.nr)}</span><span><span class="toc-name">Monat ${m.nr}</span><span class="toc-sub">${fmt(m.titel)}</span></span>
@@ -1688,7 +1766,7 @@ function tocBox(q, selNr) {
   return `<ol class="toc" id="toc">${slice.map(m => tocRow(m, selNr)).join("")}</ol>${pager}`;
 }
 function viewInhalt() {
-  const L = latest();
+  const L = latestShown();
   return {
     mark: "録",
     left: `<h1 class="script h-xl" style="padding-left:44px">Inhalt</h1>
@@ -1704,6 +1782,7 @@ function actFoot(a) {
 }
 /* Monatsbericht, erste Doppelseite: links Bild, Statistik, Missionen; rechts Bericht (Ausschnitt) und Liste der Aktivitäten */
 function viewMonat(m) {
+  if (m.ausgerissen) return viewAusgerissen(m);
   const list = missionsOf(m), s = stats(list);
   const acts = m.aktivitaeten || [], det = detailPages(m), dc = detailCount(m);
   const toDetail = i => `#monat-${m.nr}-${Math.floor((det.actPage[i] ?? 0) / 2) + 1}`;
@@ -1793,7 +1872,7 @@ function detailPages(m) {
 }
 /* Detailseiten gibt es nur, wenn die Übersicht nicht alles zeigt: langer Bericht, ausführliche Texte,
    verlinkte Missionen oder mehr Aktivitäten, als auf eine Seite passen */
-const needsDetail = m => { const acts = m.aktivitaeten || []; return String(m.bericht || "").length > 280 || acts.length > 5 || acts.some(a => a.details || a.mission || String(a.text || "").length > 60); };
+const needsDetail = m => { if (m.ausgerissen) return false; const acts = m.aktivitaeten || []; return String(m.bericht || "").length > 280 || acts.length > 5 || acts.some(a => a.details || a.mission || String(a.text || "").length > 60); };
 const detailCount = m => needsDetail(m) ? detailPages(m).pages.length / 2 : 0;
 function viewMonatDetail(m, k) {
   const { pages } = detailPages(m), L = pages[2 * k - 2] || [], R = pages[2 * k - 1] || [];
@@ -1836,8 +1915,8 @@ const bookmarks = (tab, cls) => `<nav class="bms${cls ? " " + cls : ""}" aria-la
 const folioOf = key => { const i = seq().indexOf(key); return i > 0 ? [2 * i - 1, 2 * i] : [0, 0]; };
 /* Lesezeichen gehören zur linken, das rote Band zur rechten Seite: so blättern sie mit um */
 const wmHalf = mark => mark ? `<div class="wm-clip" aria-hidden="true"><div class="watermark brush">${mark}</div></div>` : "";
-const pageL = (html, tab, n, bmCls, mark) => `<section class="page page-l">${wmHalf(mark)}${tab ? bookmarks(tab, bmCls) : ""}<div class="pin">${html}</div>${n ? folio(n) : ""}</section>`;
-const pageR = (html, v, n) => `<section class="page page-r${v && v.rClass ? " " + v.rClass : ""}">${wmHalf(v && v.mark)}${v && !v.noRibbon ? `<div class="month-ribbon" aria-hidden="true">${v.ribbon ? `<span class="brush">${v.ribbon}</span>` : ""}</div>` : ""}<div class="pin">${html}</div>${n ? folio(n) : ""}</section>`;
+const pageL = (html, tab, n, bmCls, mark, torn) => `<section class="page page-l${torn ? " torn" : ""}">${wmHalf(mark)}${torn ? tearHTML(torn, true) : ""}${tab ? bookmarks(tab, bmCls) : ""}<div class="pin">${html}</div>${n ? folio(n) : ""}</section>`;
+const pageR = (html, v, n) => `<section class="page page-r${v && v.rClass ? " " + v.rClass : ""}${v && v.torn ? " torn" : ""}">${wmHalf(v && v.mark)}${v && v.torn ? tearHTML(v.torn * 31 + 7, false) : ""}${v && !v.noRibbon ? `<div class="month-ribbon" aria-hidden="true">${v.ribbon ? `<span class="brush">${v.ribbon}</span>` : ""}</div>` : ""}<div class="pin">${html}</div>${n ? folio(n) : ""}</section>`;
 function corners(key) {
   const q = seq(), i = q.indexOf(key), p = q[i - 1], n = q[i + 1];
   return (p ? `<a class="corner l" href="#${p}" aria-label="Zurückblättern" title="Zurückblättern"></a>` : "") + (n ? `<a class="corner r" href="#${n}" aria-label="Weiterblättern" title="Weiterblättern"></a>` : "");
@@ -1925,7 +2004,7 @@ function layoutPages(root = spread) {
   if (tb && two && !$("#tocSearch")?.value) {
     const first = tocPage * (tocPer || INHALT_PRO_SEITE);
     tocPer = INHALT_PRO_SEITE; tocPage = Math.floor(first / tocPer);
-    const sel = +($("#tocPreview")?.dataset.m || latest()?.nr);
+    const sel = +($("#tocPreview")?.dataset.m || latestShown()?.nr);
     tb.innerHTML = tocBox("", sel);
     while (over(tb.closest(".page")) && tocPer > 1) { tocPer--; tocPage = Math.floor(first / tocPer); tb.innerHTML = tocBox("", sel); }
   }
@@ -1936,7 +2015,7 @@ const watermark = v => v.mark ? `<div class="watermark brush" aria-hidden="true"
 let repairing = false;
 function paint(v, dropBms) {
   const [a, b] = folioOf(current?.key);
-  spread.innerHTML = `${closeBtn}${pageL(v.left, current?.tab, a, dropBms ? "drop" : "", v.mark)}${pageR(v.right, v, b)}${corners(current?.key)}`;
+  spread.innerHTML = `${closeBtn}${pageL(v.left, current?.tab, a, dropBms ? "drop" : "", v.mark, v.torn)}${pageR(v.right, v, b)}${corners(current?.key)}`;
   layoutPages();
   // Sicherheitsnetz: passt eine Detailseite nicht (z. B. Schrift kam später), neu aufteilen statt Einträge abzuschneiden
   if (!repairing && twoUp() && /^monat-\d+-\d+$/.test(current?.key || "") && [...spread.querySelectorAll(":scope > .page")].some(over)) {
@@ -1968,10 +2047,10 @@ function turn(route, intro) {
     // rechte Seite schlägt nach links um; die neuen Lesezeichen kommen auf ihrer Rückseite mit
     spread.innerHTML = `${closeBtn}${oldL}${pageR(v.right, v, fb)}
       <div class="shade" style="left:50%"></div>
-      <div class="flip fwd${intro ? " intro" : ""}"><div class="fc front">${oldR}</div><div class="fc back">${pageL(v.left, route.tab, fa, "", v.mark)}</div></div>`;
+      <div class="flip fwd${intro ? " intro" : ""}"><div class="fc front">${oldR}</div><div class="fc back">${pageL(v.left, route.tab, fa, "", v.mark, v.torn)}</div></div>`;
   } else {
     // linke Seite schlägt samt Lesezeichen nach rechts um; darunter erscheinen sie danach neu
-    spread.innerHTML = `${closeBtn}${pageL(v.left, route.tab, fa, "wait", v.mark)}${oldR}
+    spread.innerHTML = `${closeBtn}${pageL(v.left, route.tab, fa, "wait", v.mark, v.torn)}${oldR}
       <div class="shade" style="left:0"></div>
       <div class="flip bwd"><div class="fc front">${oldL}</div><div class="fc back">${pageR(v.right, v, fb)}</div></div>`;
   }
@@ -2124,7 +2203,7 @@ document.addEventListener("click", e => {
   if (tb) {
     const dir = +tb.dataset.toc, box = $("#tocBox");
     tocPage += dir;
-    box.innerHTML = tocBox("", +($("#tocPreview")?.dataset.m || latest()?.nr));
+    box.innerHTML = tocBox("", +($("#tocPreview")?.dataset.m || latestShown()?.nr));
     box.classList.remove("turn-f", "turn-b"); void box.offsetWidth; box.classList.add(dir > 0 ? "turn-f" : "turn-b");
     box.querySelector(`[data-toc="${dir}"]:not(:disabled)`)?.focus({ preventScroll: true });
     return;
@@ -2142,7 +2221,7 @@ document.addEventListener("focusin", e => { const r = e.target.closest(".toc-row
 document.addEventListener("input", e => {
   if (e.target.id !== "tocSearch") return;
   const q = e.target.value.trim().toLowerCase();
-  $("#tocBox").innerHTML = tocBox(q, +($("#tocPreview")?.dataset.m || latest()?.nr));
+  $("#tocBox").innerHTML = tocBox(q, +($("#tocPreview")?.dataset.m || latestShown()?.nr));
   const first = document.querySelector("#toc .toc-row");
   if (q && first) preview(first);
 });
@@ -2351,7 +2430,8 @@ const FORMS = {
     const d = m || { nr: Math.max(0, ...MONATE.map(x => x.nr)) + 1, titel: "", zeitraum: "", motiv: "berge", bild: "", bericht: "", aktivitaeten: [] };
     return `<h2 class="script ed-h">${m ? `Monat ${m.nr}` : "Neuer Monat"}</h2>
       <div class="ed-grid">${FIELD("Nummer", inp("nr", d.nr, 'type="number" min="1" step="1" required'))}${FIELD("Zeitraum / Datum", inp("zeitraum", d.zeitraum, 'placeholder="z. B. 29.10."'))}</div>
-      ${FIELD("Titel", inp("titel", d.titel, "required"))}
+      <div class="fld"><label class="chk"><input type="checkbox" name="ausgerissen"${d.ausgerissen ? " checked" : ""}> Seite ausgerissen</label><small>Im Heft stehen dann nur Nummer und Datum, die Doppelseite zeigt die Risskante. Titel und Inhalte bleiben gespeichert.</small></div>
+      ${FIELD("Titel", inp("titel", d.titel), "Bei einer ausgerissenen Seite nicht nötig.")}
       <div class="ed-grid">${FIELD("Standard-Header", sel("motiv", MOTIVE, d.motiv), "Gilt, solange kein eigenes Bild hochgeladen ist.")}${imgField("bild", d.bild, 1200, "Eigenes Header-Bild", "Wird in Graustufen in den Tusche-Rand gesetzt.")}</div>
       ${FIELD("Bericht", area("bericht", d.bericht, 6), "Auf der Übersicht steht ein Ausschnitt, ganz zu lesen ist er auf den Detailseiten. ~~Text~~ wird durchgestrichen.")}
       <fieldset class="rep"><legend>Missionen in diesem Monat</legend>
@@ -2365,7 +2445,7 @@ const FORMS = {
     const d = x || { titel: "", rang: "D", status: "erfolgreich", monat: here ? +here[1] : "", auftraggeber: "", ort: "", bericht: "" };
     return `<h2 class="script ed-h">${x ? "Mission" : "Neue Mission"}</h2>
       ${FIELD("Titel", inp("titel", d.titel, "required"))}
-      <div class="ed-grid three">${FIELD("Rang", sel("rang", RANKS.map(r => [r, r + "-Rang"]), d.rang))}${FIELD("Erfolg", sel("status", Object.entries(STATUS).map(([k, v]) => [k, v[1]]), d.status))}${FIELD("Monat", sel("monat", [["", "— noch keinem Monat —"], ...sorted().map(m => [m.nr, `Monat ${m.nr} · ${m.titel}`])], d.monat ?? ""), "Kann später zugewiesen werden.")}</div>
+      <div class="ed-grid three">${FIELD("Rang", sel("rang", RANKS.map(r => [r, r + "-Rang"]), d.rang))}${FIELD("Erfolg", sel("status", Object.entries(STATUS).map(([k, v]) => [k, v[1]]), d.status))}${FIELD("Monat", sel("monat", [["", "— noch keinem Monat —"], ...sorted().map(m => [m.nr, `Monat ${m.nr} · ${m.ausgerissen ? "Seite fehlt" : m.titel}`])], d.monat ?? ""), "Kann später zugewiesen werden.")}</div>
       <div class="ed-grid">${FIELD("Auftrag von", inp("auftraggeber", d.auftraggeber))}${FIELD("Ort", inp("ort", d.ort))}</div>
       <div class="ed-grid">${FIELD("Standard-Bild", sel("motiv", [["", "Wie der Monat"], ...MOTIVE], d.motiv || ""), "Gilt, solange kein eigenes Bild hochgeladen ist.")}${imgField("bild", d.bild, 1200, "Eigenes Bild", "Wird in Graustufen in den Tusche-Rand gesetzt.")}</div>
       <fieldset class="rep" data-rep="tn"><legend>Teilnehmer</legend>${(d.teilnehmer || []).map(tnRow).join("")}
@@ -2457,11 +2537,13 @@ async function applyForm(f) {
     const nr = parseInt(g("nr"), 10), old = arg ? +arg : null;
     if (!(nr > 0)) return fail("Bitte eine Monatsnummer ab 1 angeben.");
     if (MONATE.some(m => m.nr === nr && m.nr !== old)) return fail(`Monat ${nr} gibt es schon.`);
-    if (!g("titel")) return fail("Bitte einen Titel angeben.");
+    const torn = !!f.elements.ausgerissen?.checked;
+    if (!g("titel") && !torn) return fail("Bitte einen Titel angeben (oder die Seite als ausgerissen markieren).");
     let m = old ? MONATE.find(x => x.nr === old) : null;
     if (!m) { m = {}; MONATE.push(m); }
     if (old && old !== nr) MISSIONEN.forEach(x => { if (x.monat === old) x.monat = nr; });
     Object.assign(m, { nr, titel: g("titel"), zeitraum: g("zeitraum"), motiv: g("motiv"), bild: g("bild"), bericht: g("bericht") });
+    if (torn) m.ausgerissen = true; else delete m.ausgerissen;
     const on = new Set([...f.querySelectorAll('input[name="ms"]:checked')].map(c => c.value));
     MISSIONEN.forEach(x => { if (on.has(String(x.id))) x.monat = nr; else if (x.monat === nr) x.monat = null; });
     m.aktivitaeten = rowsOf(f, "act").filter(r => r.titel || r.text || r.details).map(r => {
